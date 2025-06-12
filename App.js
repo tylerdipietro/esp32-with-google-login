@@ -4,7 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AntDesign, Feather } from '@expo/vector-icons'; // Ensure you have these icons installed
-import { SafeAreaView } from 'react-native-safe-area-context'; // For handling notches/safe areas
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context'; // Import SafeAreaProvider
 
 // Polyfill for TextEncoder/Decoder for some environments (e.g., React Native without full web APIs)
 // Uncomment the line below if you encounter issues with URLSearchParams or fetch requests on certain platforms
@@ -448,19 +448,21 @@ export default function App() {
 
   // Conditional rendering based on authentication state
   return (
-    <AuthContext.Provider value={authContextValue}>
-      {isLoadingAuth ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      ) : user ? (
-        <DashboardScreen />
-      ) : (
-        <LoginScreen />
-      )}
-      <CustomAlert message={alertMessage} isVisible={isAlertVisible} onClose={hideCustomAlert} />
-    </AuthContext.Provider>
+    <SafeAreaProvider> {/* Add SafeAreaProvider here */}
+      <AuthContext.Provider value={authContextValue}>
+        {isLoadingAuth ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Loading...</Text>
+          </View>
+        ) : user ? (
+          <DashboardScreen />
+        ) : (
+          <LoginScreen />
+        )}
+        <CustomAlert message={alertMessage} isVisible={isAlertVisible} onClose={hideCustomAlert} />
+      </AuthContext.Provider>
+    </SafeAreaProvider>
   );
 }
 
