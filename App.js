@@ -128,42 +128,45 @@ function DashboardScreen() {
       setBluetoothStatus('No ESP32 devices found nearby. Try again later.');
     }, 5000);
 
-    
+    /*
     // Example conceptual BLE integration (requires react-native-ble-plx)
-    import { BleManager } from 'react-native-ble-plx';
-    const bleManager = new BleManager();
+    // IMPORTANT: If you uncomment this, ensure 'react-native-ble-plx' is installed
+    // and its import is at the TOP LEVEL of the file (outside of any functions/components).
+    // import { BleManager } from 'react-native-ble-plx'; // <--- THIS BELONGS AT THE VERY TOP OF THE FILE
 
-    const subscription = bleManager.onStateChange((state) => {
-      if (state === 'PoweredOn') {
-        console.log('Bluetooth is powered on. Starting scan...');
-        setBluetoothStatus('Bluetooth is ON. Scanning...');
-        bleManager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
-          if (error) {
-            console.error("Bluetooth scan error:", error);
-            setBluetoothStatus(`Scan Error: ${error.message}`);
-            return;
-          }
-          // Filter for your ESP32 devices (e.g., by name prefix or advertised service UUID)
-          if (device.name && device.name.includes('ESP32')) {
-            console.log('Found ESP32 device:', device.name, device.id);
-            // In a real app, you'd add this device to a list state variable
-            // For now, we'll just use dummyDevices
-            setBluetoothStatus(`Found ${device.name} (${device.id})`);
-            // You might stop scanning here if you only want to connect to one
-            // bleManager.stopDeviceScan();
-          }
-        });
-      } else {
-        setBluetoothStatus(`Bluetooth is ${state}. Please turn it ON.`);
-      }
-    }, true); // The 'true' makes it run immediately on component mount
+    // const bleManager = new BleManager();
 
-    return () => {
-      clearTimeout(scanTimer); // Clear simulated timer
-      subscription.remove(); // Unsubscribe from BLE state changes
-      bleManager.destroy(); // Clean up BLE manager
-    };
-    
+    // const subscription = bleManager.onStateChange((state) => {
+    //   if (state === 'PoweredOn') {
+    //     console.log('Bluetooth is powered on. Starting scan...');
+    //     setBluetoothStatus('Bluetooth is ON. Scanning...');
+    //     bleManager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
+    //       if (error) {
+    //         console.error("Bluetooth scan error:", error);
+    //         setBluetoothStatus(`Scan Error: ${error.message}`);
+    //         return;
+    //       }
+    //       // Filter for your ESP32 devices (e.g., by name prefix or advertised service UUID)
+    //       if (device.name && device.name.includes('ESP32')) {
+    //         console.log('Found ESP32 device:', device.name, device.id);
+    //         // In a real app, you'd add this device to a list state variable
+    //         // For now, we'll just use dummyDevices
+    //         setBluetoothStatus(`Found ${device.name} (${device.id})`);
+    //         // You might stop scanning here if you only want to connect to one
+    //         // bleManager.stopDeviceScan();
+    //       }
+    //     });
+    //   } else {
+    //     setBluetoothStatus(`Bluetooth is ${state}. Please turn it ON.`);
+    //   }
+    // }, true); // The 'true' makes it run immediately on component mount
+
+    // return () => {
+    //   clearTimeout(scanTimer); // Clear simulated timer
+    //   // subscription.remove(); // Unsubscribe from BLE state changes
+    //   // bleManager.destroy(); // Clean up BLE manager
+    // };
+    */
     return () => clearTimeout(scanTimer); // Cleanup for the simulated timer
   }, []);
 
@@ -202,6 +205,7 @@ function DashboardScreen() {
       // This is where you would write to the specific BLE characteristic on the ESP32.
       // You'd need to know the Service UUID and Characteristic UUID exposed by your ESP32.
       /*
+      // Assuming 'connectedDevice' is a BleDevice object from react-native-ble-plx
       await connectedDevice.writeCharacteristicWithResponseForService(
         'YOUR_ESP32_SERVICE_UUID',       // Replace with your ESP32's Service UUID
         'YOUR_ESP32_CHARACTERISTIC_UUID', // Replace with your ESP32's Characteristic UUID for GPIO control
