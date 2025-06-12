@@ -14,7 +14,15 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tdipietro87.esp32withgooglelogin"
+      "bundleIdentifier": "com.tdipietro87.esp32withgooglelogin",
+      "config": {
+        "googleMapsApiKey": ""
+      },
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to nearby ESP32 devices.",
+        "NSBluetoothPeripheralUsageDescription": "This app requires Bluetooth access to discover and connect to ESP32 devices.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
