@@ -36,7 +36,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-web-browser"
+      "expo-web-browser",
+      "react-native-ble-plx"
     ],
     "extra": {
       "eas": {

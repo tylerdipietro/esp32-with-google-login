@@ -1,22 +1,27 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Platform, Alert } from 'react-native';
+import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform } from 'react-native'; // Added Platform here
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AntDesign, Feather } from '@expo/vector-icons'; // Ensure you have these icons installed
-import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context'; // Import SafeAreaProvider
+import { AntDesign, Feather } from '@expo/vector-icons';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
+import { BleManager, State as BluetoothState } from 'react-native-ble-plx'; // Removed Device type, added State
+import { Buffer } from 'buffer'; // Required for base64 encoding/decoding
 
-// Polyfill for TextEncoder/Decoder for some environments (e.g., React Native without full web APIs)
-// Uncomment the line below if you encounter issues with URLSearchParams or fetch requests on certain platforms
+// Polyfill for TextEncoder/Decoder for some environments
 // import 'react-native-url-polyfill/auto';
 
-// Required for Expo WebBrowser to work correctly for auth sessions
 WebBrowser.maybeCompleteAuthSession();
+
+// Initialize Buffer for global use if needed (often automatically handled by bundlers)
+if (typeof Buffer === 'undefined') {
+  global.Buffer = require('buffer').Buffer;
+}
 
 // --- AuthContext: Provides authentication state and functions to all components ---
 const AuthContext = createContext(null);
 
-// --- Custom Alert Component (replaces native alert for better UX and consistency) ---
+// --- Custom Alert Component (replaces native Alert for better UX and consistency) ---
 function CustomAlert({ message, isVisible, onClose }) {
   if (!isVisible) return null;
 
@@ -88,7 +93,7 @@ function LoginScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.card}>
         <Image
-          source={{ uri: 'https://placehold.co/150x150/000000/FFFFFF?text=ESP32' }} // Placeholder image for your app logo
+          source={{ uri: 'https://placehold.co/150x150/000000/FFFFFF?text=ESP32' }}
           style={styles.logo}
         />
         <Text style={styles.title}>Connect with ESP32</Text>
@@ -97,7 +102,7 @@ function LoginScreen() {
         <TouchableOpacity
           style={styles.googleButton}
           onPress={signInWithGoogle}
-          disabled={isLoadingAuth} // Disable button while auth is in progress
+          disabled={isLoadingAuth}
         >
           {isLoadingAuth ? (
             <ActivityIndicator color="#fff" />
@@ -117,139 +122,229 @@ function LoginScreen() {
 // --- Dashboard Screen Component ---
 function DashboardScreen() {
   const { signOut, user, showCustomAlert } = useContext(AuthContext);
-  const [bluetoothStatus, setBluetoothStatus] = useState('Scanning for devices...');
-  const [connectedDevice, setConnectedDevice] = useState(null); // Stores information about the connected device
 
-  // This useEffect simulates Bluetooth scanning and connection.
-  // In a real application, you would integrate a BLE library like 'react-native-ble-plx'.
+  // BLE State Management
+  const bleManager = useRef(new BleManager()).current; // Initialize BleManager once
+  const [bluetoothStatus, setBluetoothStatus] = useState('Initializing Bluetooth...');
+  const [scannedDevices, setScannedDevices] = useState([]); // Removed TypeScript type
+  const [isScanning, setIsScanning] = useState(false);
+  const [connectedDevice, setConnectedDevice] = useState(null); // Removed TypeScript type
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  // Replace with your ESP32's actual Service and Characteristic UUIDs
+  const ESP32_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb'; // Example: A common simple BLE service UUID
+  const ESP32_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb'; // Example: A common characteristic UUID
+
+  // --- Bluetooth State & Permissions ---
   useEffect(() => {
-    // Simulate initial scan, setting a timeout to indicate no devices found
-    const scanTimer = setTimeout(() => {
-      setBluetoothStatus('No ESP32 devices found nearby. Try again later.');
-    }, 5000);
+    let stateSubscription = null;
 
-    /*
-    // Example conceptual BLE integration (requires react-native-ble-plx)
-    // IMPORTANT: If you uncomment this, ensure 'react-native-ble-plx' is installed
-    // and its import is at the TOP LEVEL of the file (outside of any functions/components).
-    // import { BleManager } from 'react-native-ble-plx'; // <--- THIS BELONGS AT THE VERY TOP OF THE FILE
+    // Check and request Bluetooth permissions (Android specific)
+    const requestPermissions = async () => {
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: "Bluetooth Permission",
+            message: "This app needs access to your location to scan for Bluetooth devices.",
+            buttonNeutral: "Ask Me Later",
+            buttonNegative: "Cancel",
+            buttonPositive: "OK"
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          showCustomAlert("Location permission denied. Cannot scan for Bluetooth devices.");
+          setBluetoothStatus("Permissions denied.");
+          return false;
+        }
+        // For Android 12+
+        if (Platform.Version >= 31) { // Android 12 and above
+          const bluetoothScanGranted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+            {
+              title: "Bluetooth Scan Permission",
+              message: "This app needs Bluetooth Scan permission.",
+              buttonNeutral: "Ask Me Later",
+              buttonNegative: "Cancel",
+              buttonPositive: "OK"
+            }
+          );
+          const bluetoothConnectGranted = await PermissionsAndroid.request(
+            PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+            {
+              title: "Bluetooth Connect Permission",
+              message: "This app needs Bluetooth Connect permission.",
+              buttonNeutral: "Ask Me Later",
+              buttonNegative: "Cancel",
+              buttonPositive: "OK"
+            }
+          );
+          if (bluetoothScanGranted !== PermissionsAndroid.RESULTS.GRANTED || bluetoothConnectGranted !== PermissionsAndroid.RESULTS.GRANTED) {
+            showCustomAlert("Bluetooth Scan/Connect permissions denied.");
+            setBluetoothStatus("Permissions denied.");
+            return false;
+          }
+        }
+        return true;
+      }
+      return true; // iOS doesn't need explicit runtime location permission for BLE itself.
+    };
 
-    // const bleManager = new BleManager();
+    // Listen for Bluetooth adapter state changes
+    stateSubscription = bleManager.onStateChange((state) => {
+      setBluetoothStatus(`Bluetooth: ${state}`);
+      if (state === BluetoothState.PoweredOn) {
+        setBluetoothStatus('Bluetooth ON. Ready to scan.');
+        // Optionally start scan immediately if permissions are granted
+        // requestPermissions().then(granted => { if (granted) startScan(); });
+      } else if (state === BluetoothState.PoweredOff) {
+        setConnectedDevice(null);
+        setScannedDevices([]);
+        setIsScanning(false);
+        showCustomAlert("Bluetooth is OFF. Please turn it ON to connect devices.");
+      }
+    }, true); // `true` makes it run immediately on mount
 
-    // const subscription = bleManager.onStateChange((state) => {
-    //   if (state === 'PoweredOn') {
-    //     console.log('Bluetooth is powered on. Starting scan...');
-    //     setBluetoothStatus('Bluetooth is ON. Scanning...');
-    //     bleManager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
-    //       if (error) {
-    //         console.error("Bluetooth scan error:", error);
-    //         setBluetoothStatus(`Scan Error: ${error.message}`);
-    //         return;
-    //       }
-    //       // Filter for your ESP32 devices (e.g., by name prefix or advertised service UUID)
-    //       if (device.name && device.name.includes('ESP32')) {
-    //         console.log('Found ESP32 device:', device.name, device.id);
-    //         // In a real app, you'd add this device to a list state variable
-    //         // For now, we'll just use dummyDevices
-    //         setBluetoothStatus(`Found ${device.name} (${device.id})`);
-    //         // You might stop scanning here if you only want to connect to one
-    //         // bleManager.stopDeviceScan();
-    //       }
-    //     });
-    //   } else {
-    //     setBluetoothStatus(`Bluetooth is ${state}. Please turn it ON.`);
-    //   }
-    // }, true); // The 'true' makes it run immediately on component mount
+    return () => {
+      // Cleanup on unmount
+      if (stateSubscription) stateSubscription.remove();
+      bleManager.destroy();
+    };
+  }, [bleManager, showCustomAlert]);
 
-    // return () => {
-    //   clearTimeout(scanTimer); // Clear simulated timer
-    //   // subscription.remove(); // Unsubscribe from BLE state changes
-    //   // bleManager.destroy(); // Clean up BLE manager
-    // };
-    */
-    return () => clearTimeout(scanTimer); // Cleanup for the simulated timer
-  }, []);
+  // --- BLE Operations ---
 
-  const handleConnectDevice = async (deviceId) => {
-    // In a real BLE scenario, this would involve:
-    // 1. Stopping the scan if it's active.
-    // 2. Calling `bleManager.connectToDevice(deviceId)`.
-    // 3. Discovering services and characteristics (`device.discoverAllServicesAndCharacteristics()`).
-    // 4. Storing the connected device object and its relevant characteristics.
+  const startScan = async () => {
+    const hasPermissions = await requestPermissions();
+    if (!hasPermissions) return;
 
-    setBluetoothStatus(`Connecting to ${deviceId}...`);
+    if (isScanning) {
+        showCustomAlert("Already scanning!");
+        return;
+    }
+
+    setScannedDevices([]);
+    setBluetoothStatus("Scanning for ESP32 devices...");
+    setIsScanning(true);
+
+    bleManager.startDeviceScan(null, null, (error, device) => { // Scan all devices
+      if (error) {
+        console.error("Scan error:", error);
+        setBluetoothStatus(`Scan Error: ${error.message}`);
+        showCustomAlert(`Bluetooth Scan Error: ${error.message}`);
+        setIsScanning(false);
+        return;
+      }
+
+      // Filter devices, e.g., by name or advertised service UUID
+      if (device && (device.name?.includes('ESP32') || device.serviceUUIDs?.includes(ESP32_SERVICE_UUID))) {
+        setScannedDevices(prevDevices => {
+          if (!prevDevices.some(d => d.id === device.id)) {
+            return [...prevDevices, device];
+          }
+          return prevDevices;
+        });
+      }
+    });
+
+    // Stop scanning after 10 seconds
+    setTimeout(() => {
+      bleManager.stopDeviceScan();
+      setIsScanning(false);
+      setBluetoothStatus("Scan finished.");
+      if (scannedDevices.length === 0) {
+        setBluetoothStatus("No ESP32 devices found. Tap Scan to retry.");
+      }
+    }, 10000);
+  };
+
+  const connectToDevice = async (device) => { // Removed TypeScript type
+    if (isConnecting) return;
+    setIsConnecting(true);
+    bleManager.stopDeviceScan();
+    setIsScanning(false);
+    setBluetoothStatus(`Connecting to ${device.name || device.id}...`);
+
     try {
-      // Simulate connection time
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setConnectedDevice({ id: deviceId, name: `ESP32-Device-${deviceId.substring(0,4)}` });
-      setBluetoothStatus(`Connected to ESP32: ${deviceId}`);
-      console.log(`Successfully simulated connection to device: ${deviceId}`);
+      const connected = await device.connect();
+      const discovered = await connected.discoverAllServicesAndCharacteristics();
+      // You can now read/write characteristics
+      setConnectedDevice(discovered);
+      setBluetoothStatus(`Connected to ${discovered.name || discovered.id}`);
+      showCustomAlert(`Connected to ${discovered.name || discovered.id}`);
     } catch (error) {
-      console.error('Connection error:', error);
-      showCustomAlert(`Failed to connect: ${error.message}`);
-      setBluetoothStatus(`Connection failed: ${error.message}`);
+      console.error("Connection error:", error);
+      setBluetoothStatus(`Connection Failed: ${error.message}`);
+      showCustomAlert(`Connection Failed: ${error.message}`);
+      setConnectedDevice(null);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const disconnectDevice = async () => {
+    if (!connectedDevice) return;
+    setBluetoothStatus(`Disconnecting from ${connectedDevice.name || connectedDevice.id}...`);
+    try {
+      await connectedDevice.cancelConnection();
+      setConnectedDevice(null);
+      setBluetoothStatus("Disconnected. Ready to scan.");
+      showCustomAlert("Device disconnected.");
+    } catch (error) {
+      console.error("Disconnection error:", error);
+      setBluetoothStatus(`Disconnection Failed: ${error.message}`);
+      showCustomAlert(`Disconnection Failed: ${error.message}`);
     }
   };
 
   const handleTriggerGpio = async () => {
     if (!connectedDevice) {
-      showCustomAlert('Please connect to an ESP32 device first!');
+      showCustomAlert('No device connected. Please connect to an ESP32 first!');
       return;
     }
+    if (isTriggering) return;
 
-    console.log(`Attempting to trigger GPIO 27 on ${connectedDevice.name}...`);
-    setBluetoothStatus(`Triggering GPIO 27 on ${connectedDevice.name}...`);
+    setIsTriggering(true);
+    setBluetoothStatus(`Triggering GPIO 27 on ${connectedDevice.name || connectedDevice.id}...`);
 
     try {
-      // Option 1: Direct BLE communication from app to ESP32 (recommended for BLE-only)
-      // This is where you would write to the specific BLE characteristic on the ESP32.
-      // You'd need to know the Service UUID and Characteristic UUID exposed by your ESP32.
-      /*
-      // Assuming 'connectedDevice' is a BleDevice object from react-native-ble-plx
-      await connectedDevice.writeCharacteristicWithResponseForService(
-        'YOUR_ESP32_SERVICE_UUID',       // Replace with your ESP32's Service UUID
-        'YOUR_ESP32_CHARACTERISTIC_UUID', // Replace with your ESP32's Characteristic UUID for GPIO control
-        'AQ=='                           // Base64 encoded value, e.g., '1' for ON. Convert your value to Base64.
+      // Find the characteristic
+      const service = await connectedDevice.services().then(services =>
+        services.find(s => s.uuid.toLowerCase() === ESP32_SERVICE_UUID.toLowerCase())
       );
-      */
 
-      // Option 2: Backend-mediated communication (if ESP32 connects to Wi-Fi/MQTT)
-      // If your backend handles the actual command to the ESP32 (e.g., via Wi-Fi or MQTT),
-      // then you would make a fetch call to your Node.js backend here.
-      /*
-      const backendUrl = 'YOUR_HEROKU_BACKEND_URL'; // Ensure this matches your deployed backend URL
-      const response = await fetch(`${backendUrl}/api/trigger-gpio`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.idToken}`, // Send ID token for backend verification
-        },
-        body: JSON.stringify({ deviceId: connectedDevice.id, gpioPin: 27 }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to trigger GPIO via backend');
+      if (!service) {
+        throw new Error(`Service with UUID ${ESP32_SERVICE_UUID} not found.`);
       }
 
-      const data = await response.json();
-      console.log('GPIO trigger response from backend:', data);
-      */
+      const characteristic = await service.characteristics().then(chars =>
+        chars.find(c => c.uuid.toLowerCase() === ESP32_CHARACTERISTIC_UUID.toLowerCase())
+      );
 
-      // Simulating success
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setBluetoothStatus(`Successfully triggered GPIO 27 on ${connectedDevice.name}!`);
+      if (!characteristic) {
+        throw new Error(`Characteristic with UUID ${ESP32_CHARACTERISTIC_UUID} not found.`);
+      }
+
+      // Value to write (e.g., '1' to toggle, or 'ON'/'OFF' depending on your ESP32 firmware)
+      // Needs to be base64 encoded.
+      const valueToSend = '1'; // Or 'TOGGLE' or whatever your ESP32 expects
+      const encodedValue = Buffer.from(valueToSend).toString('base64');
+
+      // Write to the characteristic
+      await characteristic.writeWithResponse(encodedValue);
+
+      setBluetoothStatus(`GPIO 27 triggered successfully on ${connectedDevice.name || connectedDevice.id}!`);
+      showCustomAlert(`GPIO 27 triggered successfully!`);
     } catch (error) {
-      console.error('Error triggering GPIO:', error);
-      showCustomAlert(`Error triggering GPIO: ${error.message}`);
+      console.error("Error triggering GPIO:", error);
       setBluetoothStatus(`Error triggering GPIO: ${error.message}`);
+      showCustomAlert(`Error triggering GPIO: ${error.message}`);
+    } finally {
+      setIsTriggering(false);
     }
   };
 
-  const dummyDevices = [ // Simulate discovered devices for display
-    { id: 'ABCD12345678', name: 'MyESP32-A' },
-    { id: 'EFGH98765432', name: 'AnotherESP32' },
-  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -272,39 +367,65 @@ function DashboardScreen() {
         <Text style={styles.dashboardTitle}>Bluetooth Devices</Text>
         <Text style={styles.bluetoothStatusText}>{bluetoothStatus}</Text>
 
-        <Text style={styles.subHeading}>Available ESP32 Devices:</Text>
-        {dummyDevices.length > 0 ? (
-          dummyDevices.map((device) => (
+        {!connectedDevice ? (
+          <>
             <TouchableOpacity
-              key={device.id}
-              style={[styles.deviceItem, connectedDevice?.id === device.id && styles.connectedDeviceItem]}
-              onPress={() => handleConnectDevice(device.id)}
-              disabled={connectedDevice !== null} // Disable selecting if already connected
+              style={[styles.scanButton, isScanning && styles.scanButtonDisabled]}
+              onPress={startScan}
+              disabled={isScanning}
             >
-              <Text style={styles.deviceName}>{device.name}</Text>
-              <Text style={styles.deviceId}>{device.id}</Text>
+              {isScanning ? (
+                <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
+              ) : (
+                <AntDesign name="bluetooth" size={24} color="white" style={{ marginRight: 10 }} />
+              )}
+              <Text style={styles.scanButtonText}>
+                {isScanning ? 'Scanning...' : 'Scan for ESP32 Devices'}
+              </Text>
             </TouchableOpacity>
-          ))
-        ) : (
-          <Text style={styles.noDevicesText}>No devices found yet.</Text>
-        )}
 
-        {connectedDevice && (
+            <Text style={styles.subHeading}>Found Devices:</Text>
+            {scannedDevices.length > 0 ? (
+              scannedDevices.map((device) => (
+                <TouchableOpacity
+                  key={device.id}
+                  style={[styles.deviceItem, isConnecting && styles.deviceItemDisabled]}
+                  onPress={() => connectToDevice(device)}
+                  disabled={isConnecting}
+                >
+                  <Text style={styles.deviceName}>{device.name || 'N/A'}</Text>
+                  <Text style={styles.deviceId}>{device.id}</Text>
+                  {isConnecting && device.id === connectedDevice?.id && (
+                    <ActivityIndicator size="small" color="#007AFF" style={{ marginLeft: 'auto' }} />
+                  )}
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text style={styles.noDevicesText}>
+                {isScanning ? 'Searching...' : 'No devices found. Tap Scan to retry.'}
+              </Text>
+            )}
+          </>
+        ) : (
           <View style={styles.connectedInfo}>
-            <Text style={styles.connectedText}>Connected to: {connectedDevice.name}</Text>
+            <Text style={styles.connectedText}>Connected to: {connectedDevice.name || connectedDevice.id}</Text>
             <TouchableOpacity
-              style={styles.triggerButton}
+              style={[styles.triggerButton, isTriggering && styles.triggerButtonDisabled]}
               onPress={handleTriggerGpio}
+              disabled={isTriggering}
             >
-              <Text style={styles.triggerButtonText}>TRIGGER GPIO 27</Text>
-              <Feather name="zap" size={20} color="white" style={{ marginLeft: 8 }} />
+              {isTriggering ? (
+                <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
+              ) : (
+                <Feather name="zap" size={20} color="white" style={{ marginRight: 10 }} />
+              )}
+              <Text style={styles.triggerButtonText}>
+                {isTriggering ? 'Triggering...' : 'TRIGGER GPIO 27'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.disconnectButton}
-              onPress={() => {
-                setConnectedDevice(null); // Disconnect
-                setBluetoothStatus('Disconnected. Scanning for devices...');
-              }}
+              onPress={disconnectDevice}
             >
               <Text style={styles.disconnectButtonText}>Disconnect</Text>
             </TouchableOpacity>
@@ -315,14 +436,13 @@ function DashboardScreen() {
   );
 }
 
-// --- Main App Component ---
+// --- Main App Component (Wrapper for SafeAreaProvider and AuthContext) ---
 export default function App() {
   const [user, setUser] = useState(null);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true); // Start as true to show loading indicator
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isAlertVisible, setIsAlertVisible] = useState(false);
   const [alertMessage, setAlertMessage] = useState('');
 
-  // Expo Google Auth Hook (replace with your actual client IDs from Google Cloud)
   const [request, response, promptAsync] = Google.useAuthRequest({
     iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
@@ -341,7 +461,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Handle Google auth response when it changes
     if (response?.type === 'success') {
       const { authentication } = response;
       if (authentication && authentication.accessToken) {
@@ -352,16 +471,14 @@ export default function App() {
       setIsLoadingAuth(false);
       showCustomAlert(`Authentication Error: ${response.error.message || 'Unknown error'}`);
     }
-  }, [response]); // Dependency on 'response' object
+  }, [response]);
 
   useEffect(() => {
-    // On app load, try to load user from async storage to maintain session
     loadUserFromStorage();
-  }, []); // Empty dependency array means this runs once on mount
+  }, []);
 
   const fetchUserInfo = async (accessToken, idToken) => {
     try {
-      // Fetch user profile information from Google
       const userInfoResponse = await fetch('https://www.googleapis.com/userinfo/v2/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -373,22 +490,18 @@ export default function App() {
       const userInfo = await userInfoResponse.json();
       const userPayload = {
         accessToken: accessToken,
-        idToken: idToken, // Important for sending to your backend for verification
+        idToken: idToken,
         email: userInfo.email,
         givenName: userInfo.given_name,
         photoUrl: userInfo.picture,
-        // You can add more user data if needed
       };
       setUser(userPayload);
-      // Store user info in AsyncStorage for persistence across app launches
       await AsyncStorage.setItem('user', JSON.stringify(userPayload));
       console.log('User logged in:', userPayload.email);
     } catch (error) {
       console.error('Failed to fetch user info:', error);
       showCustomAlert(`Error fetching user info: ${error.message}`);
-      // If fetching user info fails, you might still consider the user logged in with just the token,
-      // or force re-login depending on your security policy.
-      setUser({ accessToken, idToken }); // Minimal user info
+      setUser({ accessToken, idToken });
     } finally {
       setIsLoadingAuth(false);
     }
@@ -413,9 +526,7 @@ export default function App() {
   const signInWithGoogle = async () => {
     setIsLoadingAuth(true);
     try {
-      // This will open the browser/system dialogue for Google login
       await promptAsync();
-      // The response is handled by the useEffect hook
     } catch (error) {
       console.error('Google sign-in prompt error:', error);
       setIsLoadingAuth(false);
@@ -426,8 +537,8 @@ export default function App() {
   const signOut = async () => {
     setIsLoadingAuth(true);
     try {
-      await AsyncStorage.removeItem('user'); // Clear user data from storage
-      setUser(null); // Clear user state
+      await AsyncStorage.removeItem('user');
+      setUser(null);
       console.log('User signed out.');
     } catch (error) {
       console.error('Failed to sign out:', error);
@@ -437,18 +548,16 @@ export default function App() {
     }
   };
 
-  // Auth context value to be passed down to children components
   const authContextValue = {
     user,
     signInWithGoogle,
     signOut,
     isLoadingAuth,
-    showCustomAlert, // Provide the custom alert function via context
+    showCustomAlert,
   };
 
-  // Conditional rendering based on authentication state
   return (
-    <SafeAreaProvider> {/* Add SafeAreaProvider here */}
+    <SafeAreaProvider>
       <AuthContext.Provider value={authContextValue}>
         {isLoadingAuth ? (
           <View style={styles.loadingContainer}>
@@ -469,12 +578,12 @@ export default function App() {
 // --- Stylesheet for the components ---
 const styles = StyleSheet.create({
   container: {
-    flex: 1, // Takes up full height
+    flex: 1,
     backgroundColor: '#f0f4f8',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
-    width: '100%', // Ensure it takes full width for web/large screens
+    width: '100%',
   },
   loadingContainer: {
     flex: 1,
@@ -496,9 +605,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 5, // Android shadow
-    width: '90%', // Responsive width
-    maxWidth: 400, // Max width for larger screens
+    elevation: 5,
+    width: '90%',
+    maxWidth: 400,
   },
   logo: {
     width: 120,
@@ -523,7 +632,7 @@ const styles = StyleSheet.create({
   googleButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#4285F4', // Google blue
+    backgroundColor: '#4285F4',
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 30,
@@ -556,8 +665,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
-    // Using default flex layout which should naturally push it to top within SafeAreaView
-    // and rely on container's flex behavior to place the dashboardCard below it.
   },
   profilePic: {
     width: 40,
@@ -569,7 +676,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
-    flex: 1, // Allows text to take available space
+    flex: 1,
   },
   signOutButton: {
     flexDirection: 'row',
@@ -594,8 +701,8 @@ const styles = StyleSheet.create({
     elevation: 5,
     width: '90%',
     maxWidth: 500,
-    marginTop: 20, // Add some top margin to separate from header
-    flexGrow: 1, // Allows the card to grow and take available space
+    marginTop: 20,
+    flexGrow: 1,
   },
   dashboardTitle: {
     fontSize: 24,
@@ -619,6 +726,30 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
     paddingBottom: 5,
   },
+  // New styles for scan button and device list
+  scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007AFF', // Blue for scan
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    width: '100%',
+  },
+  scanButtonDisabled: {
+    opacity: 0.6,
+  },
+  scanButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
   deviceItem: {
     backgroundColor: '#f8f8f8',
     padding: 15,
@@ -626,20 +757,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+    flexDirection: 'row', // To align text and activity indicator
+    alignItems: 'center',
   },
-  connectedDeviceItem: {
-    borderColor: '#007AFF',
-    borderWidth: 2,
+  deviceItemDisabled: {
+    opacity: 0.6,
   },
   deviceName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    flexShrink: 1, // Allow text to shrink
+    marginRight: 10,
   },
   deviceId: {
     fontSize: 12,
     color: '#777',
     marginTop: 5,
+    flexShrink: 1,
   },
   noDevicesText: {
     fontSize: 14,
@@ -663,7 +798,8 @@ const styles = StyleSheet.create({
   triggerButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#28a745', // Green for trigger
+    justifyContent: 'center',
+    backgroundColor: '#28a745',
     paddingVertical: 15,
     paddingHorizontal: 30,
     borderRadius: 30,
@@ -672,6 +808,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+    width: '100%',
+  },
+  triggerButtonDisabled: {
+    opacity: 0.6,
   },
   triggerButtonText: {
     color: '#fff',
@@ -681,7 +821,8 @@ const styles = StyleSheet.create({
   disconnectButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#dc3545', // Red for disconnect
+    justifyContent: 'center',
+    backgroundColor: '#dc3545',
     paddingVertical: 12,
     paddingHorizontal: 25,
     borderRadius: 30,
@@ -689,6 +830,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+    width: '100%',
   },
   disconnectButtonText: {
     color: '#fff',
