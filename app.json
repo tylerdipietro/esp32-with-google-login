@@ -15,14 +15,22 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tdipietro87.esp32withgooglelogin",
-      "buildNumber": "7", // Incrementing build number
+      "buildNumber": "7",
       "config": {
         "googleMapsApiKey": ""
       },
+      "googleServicesFile": "./GoogleService-Info.plist", // optional, safe to keep if using Firebase later
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to nearby ESP32 devices.",
         "NSBluetoothPeripheralUsageDescription": "This app requires Bluetooth access to discover and connect to ESP32 devices.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.668153907614-g77f19fvi1qg6pkogijjutk1goe36rf0"
+            ]
+          }
+        ]
       }
     },
     "android": {
