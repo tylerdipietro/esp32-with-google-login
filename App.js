@@ -1,12 +1,12 @@
 import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform } from 'react-native'; // Added Platform here
+import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AntDesign, Feather } from '@expo/vector-icons';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
-import { BleManager, State as BluetoothState } from 'react-native-ble-plx'; // Removed Device type, added State
-import { Buffer } from 'buffer'; // Required for base64 encoding/decoding
+import { BleManager, State as BluetoothState } from 'react-native-ble-plx';
+import { Buffer } from 'buffer';
 
 // Conditionally complete auth session for non-web platforms
 if (Platform.OS !== 'web') {
@@ -143,6 +143,7 @@ function DashboardScreen() {
 
     // Check and request Bluetooth permissions (Android specific)
     const requestPermissions = async () => {
+      console.log("[DEBUG] Requesting Bluetooth permissions...");
       if (Platform.OS === 'android') {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
@@ -157,6 +158,7 @@ function DashboardScreen() {
         if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
           showCustomAlert("Location permission denied. Cannot scan for Bluetooth devices.");
           setBluetoothStatus("Permissions denied.");
+          console.log("[DEBUG] Location permission denied.");
           return false;
         }
         // For Android 12+
@@ -184,21 +186,23 @@ function DashboardScreen() {
           if (bluetoothScanGranted !== PermissionsAndroid.RESULTS.GRANTED || bluetoothConnectGranted !== PermissionsAndroid.RESULTS.GRANTED) {
             showCustomAlert("Bluetooth Scan/Connect permissions denied.");
             setBluetoothStatus("Permissions denied.");
+            console.log("[DEBUG] Bluetooth Scan/Connect permissions denied.");
             return false;
           }
         }
+        console.log("[DEBUG] Permissions granted for Android.");
         return true;
       }
+      console.log("[DEBUG] Permissions assumed granted for iOS (no explicit runtime request needed).");
       return true; // iOS doesn't need explicit runtime location permission for BLE itself.
     };
 
     // Listen for Bluetooth adapter state changes
     stateSubscription = bleManager.onStateChange((state) => {
+      console.log(`[DEBUG] Bluetooth State Changed: ${state}`);
       setBluetoothStatus(`Bluetooth: ${state}`);
       if (state === BluetoothState.PoweredOn) {
         setBluetoothStatus('Bluetooth ON. Ready to scan.');
-        // Optionally start scan immediately if permissions are granted
-        // requestPermissions().then(granted => { if (granted) startScan(); });
       } else if (state === BluetoothState.PoweredOff) {
         setConnectedDevice(null);
         setScannedDevices([]);
@@ -211,37 +215,58 @@ function DashboardScreen() {
       // Cleanup on unmount
       if (stateSubscription) stateSubscription.remove();
       bleManager.destroy();
+      console.log("[DEBUG] BleManager destroyed on unmount.");
     };
   }, [bleManager, showCustomAlert]);
 
   // --- BLE Operations ---
 
   const startScan = async () => {
+    console.log("[DEBUG] startScan initiated.");
     const hasPermissions = await requestPermissions();
-    if (!hasPermissions) return;
-
-    if (isScanning) {
-        showCustomAlert("Already scanning!");
+    if (!hasPermissions) {
+        console.log("[DEBUG] startScan aborted: Permissions not granted.");
         return;
     }
 
-    setScannedDevices([]);
+    if (isScanning) {
+        showCustomAlert("Already scanning!");
+        console.log("[DEBUG] startScan aborted: Already scanning.");
+        return;
+    }
+
+    setScannedDevices([]); // Clear previous scan results
     setBluetoothStatus("Scanning for ESP32 devices...");
-    setIsScanning(true);
+    setIsScanning(true); // <--- This should trigger "Scanning..." text and indicator
+    console.log("[DEBUG] setIsScanning(true) called. isScanning state should now be true.");
+
 
     // --- IMPORTANT CHANGE HERE: Scan only for devices advertising the specific Service UUID ---
+    // The first argument to startDeviceScan is an array of service UUIDs to filter by.
+    // This is the most efficient way to find your device.
     bleManager.startDeviceScan([ESP32_SERVICE_UUID], null, (error, device) => {
       if (error) {
         console.error("Scan error:", error);
         setBluetoothStatus(`Scan Error: ${error.message}`);
         showCustomAlert(`Bluetooth Scan Error: ${error.message}`);
         setIsScanning(false);
+        console.log("[DEBUG] Scan error detected, setIsScanning(false).");
         return;
       }
 
-      // Add device to the list only if it's not already there and has the correct service UUID (already filtered by startDeviceScan)
-      // We also check for the device name here for user-friendliness, but the primary filter is the service UUID.
-      if (device && device.name?.includes('ESP32') && !scannedDevices.some(d => d.id === device.id)) {
+      // --- DEBUGGING: Log every device found by the low-level scan ---
+      if (device) {
+        console.log(`[DEBUG] Found device: ID=${device.id}, Name=${device.name || 'N/A'}, Service UUIDs=${JSON.stringify(device.serviceUUIDs)}`);
+      }
+
+      // Add device to the list only if it's not already there
+      // We are now relying primarily on the `startDeviceScan` filter for the service UUID.
+      // The `device.name?.includes('ESP32')` check is removed here to be less restrictive
+      // and ensure the device is listed if the service UUID matches.
+      if (device && !scannedDevices.some(d => d.id === device.id)) {
+        // You might want to add a more specific filter here later if you have many devices
+        // that advertise the same service UUID, but for now, let's list them all.
+        console.log(`[DEBUG] Adding device to scannedDevices: ${device.name || device.id}`);
         setScannedDevices(prevDevices => [...prevDevices, device]);
       }
     });
@@ -254,20 +279,20 @@ function DashboardScreen() {
       if (scannedDevices.length === 0) {
         setBluetoothStatus("No devices found. Tap Scan to retry.");
       }
+      console.log("[DEBUG] Scan timer ended, setIsScanning(false).");
     }, 10000);
   };
 
   const connectToDevice = async (device) => {
     if (isConnecting) return;
     setIsConnecting(true);
-    bleManager.stopDeviceScan();
-    setIsScanning(false);
+    bleManager.stopDeviceScan(); // Stop scanning before connecting
+    setIsScanning(false); // Ensure scanning stops visually too
     setBluetoothStatus(`Connecting to ${device.name || device.id}...`);
 
     try {
       const connected = await device.connect();
       const discovered = await connected.discoverAllServicesAndCharacteristics();
-      // You can now read/write characteristics
       setConnectedDevice(discovered);
       setBluetoothStatus(`Connected to ${discovered.name || discovered.id}`);
       showCustomAlert(`Connected to ${discovered.name || discovered.id}`);
@@ -307,7 +332,7 @@ function DashboardScreen() {
     setBluetoothStatus(`Triggering GPIO 27 on ${connectedDevice.name || connectedDevice.id}...`);
 
     try {
-      // Find the characteristic
+      // Find the service
       const service = await connectedDevice.services().then(services =>
         services.find(s => s.uuid.toLowerCase() === ESP32_SERVICE_UUID.toLowerCase())
       );
@@ -316,6 +341,7 @@ function DashboardScreen() {
         throw new Error(`Service with UUID ${ESP32_SERVICE_UUID} not found.`);
       }
 
+      // Find the characteristic
       const characteristic = await service.characteristics().then(chars =>
         chars.find(c => c.uuid.toLowerCase() === ESP32_CHARACTERISTIC_UUID.toLowerCase())
       );
@@ -373,8 +399,10 @@ function DashboardScreen() {
               disabled={isScanning}
             >
               {isScanning ? (
+                // Show ActivityIndicator when scanning is true
                 <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
               ) : (
+                // Show Bluetooth icon when not scanning
                 <AntDesign name="bluetooth" size={24} color="white" style={{ marginRight: 10 }} />
               )}
               <Text style={styles.scanButtonText}>
