@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tdipietro87.esp32withgooglelogin",
-      "buildNumber": "4", // <--- CHANGE THIS TO "2" or higher if you've already built with "2"
+      "buildNumber": "5", // <--- CHANGE THIS TO "2" or higher if you've already built with "2"
       "config": {
         "googleMapsApiKey": ""
       },
