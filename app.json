@@ -2,7 +2,7 @@
   "expo": {
     "name": "esp32-with-google-login",
     "slug": "esp32-with-google-login",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tdipietro87.esp32withgooglelogin",
-      "buildNumber": "7",
+      "buildNumber": "1",
       "config": {
         "googleMapsApiKey": ""
       },
