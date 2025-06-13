@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,7 +15,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tdipietro87.esp32withgooglelogin",
-      "buildNumber": "5", // <--- CHANGE THIS TO "2" or higher if you've already built with "2"
+      "buildNumber": "6", // Incrementing build number
       "config": {
         "googleMapsApiKey": ""
       },
@@ -43,7 +43,10 @@
     "extra": {
       "eas": {
         "projectId": "756d4d21-73ee-45ea-9521-4d5bcfe639b5"
-      }
+      },
+      "EXPO_PUBLIC_IOS_CLIENT_ID": "YOUR_IOS_CLIENT_ID_FROM_GOOGLE_CLOUD",
+      "EXPO_PUBLIC_ANDROID_CLIENT_ID": "YOUR_ANDROID_CLIENT_ID_FROM_GOOGLE_CLOUD",
+      "EXPO_PUBLIC_WEB_CLIENT_ID": "YOUR_WEB_CLIENT_ID_FROM_GOOGLE_CLOUD"
     }
   }
 }
