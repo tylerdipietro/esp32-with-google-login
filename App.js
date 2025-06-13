@@ -7,7 +7,8 @@
     import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
     import { BleManager, State as BluetoothState } from 'react-native-ble-plx';
     import { Buffer } from 'buffer';
-
+    import { getBleManager, destroyBleManager } from './bleManager'; // adjust path
+    
     // Conditionally complete auth session for non-web platforms
     if (Platform.OS !== 'web') {
       WebBrowser.maybeCompleteAuthSession();
@@ -37,7 +38,6 @@
       );
     }
 
-     const bleManager = useRef(new BleManager()).current; // Initialize BleManager once
 
     const customAlertStyles = StyleSheet.create({
       overlay: {
@@ -126,7 +126,7 @@
       const { signOut, user, showCustomAlert } = useContext(AuthContext);
 
       // BLE State Management
-     
+      const bleManager = useRef(getBleManager()).current;
       const [bluetoothStatus, setBluetoothStatus] = useState('Initializing Bluetooth...');
       const [scannedDevices, setScannedDevices] = useState([]);
       const [isScanning, setIsScanning] = useState(false);
