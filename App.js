@@ -251,67 +251,62 @@
 
       // --- BLE Operations ---
 
-      const startScan = async () => {
-        console.log("[DEBUG] startScan initiated.");
-        const hasPermissions = await requestPermissions();
-        if (!hasPermissions) {
-            console.log("[DEBUG] startScan aborted: Permissions not granted.");
-            return;
+   const startScan = async () => {
+  console.log("[DEBUG] startScan initiated.");
+  const hasPermissions = await requestPermissions();
+  if (!hasPermissions) {
+    console.log("[DEBUG] startScan aborted: Permissions not granted.");
+    return;
+  }
+
+  if (isScanning) {
+    showCustomAlert("Already scanning!");
+    console.log("[DEBUG] startScan aborted: Already scanning.");
+    return;
+  }
+
+  // Check Bluetooth state (optional but recommended)
+  const btState = await bleManager.state();
+  if (btState !== "PoweredOn") {
+    showCustomAlert("Please enable Bluetooth.");
+    setBluetoothStatus("Bluetooth is off.");
+    return;
+  }
+
+  setScannedDevices([]); // Clear previous scan results
+  setBluetoothStatus("Scanning for ESP32 devices...");
+  setIsScanning(true);
+
+  bleManager.startDeviceScan([ESP32_SERVICE_UUID], null, (error, device) => {
+    if (error) {
+      console.error("Scan error:", error);
+      setBluetoothStatus(`Scan Error: ${error.message}`);
+      showCustomAlert(`Bluetooth Scan Error: ${error.message}`);
+      setIsScanning(false);
+      return;
+    }
+
+    if (device) {
+      console.log(`[DEBUG] Found device: ID=${device.id}, Name=${device.name || 'N/A'}`);
+      setScannedDevices(prevDevices => {
+        if (prevDevices.some(d => d.id === device.id)) {
+          return prevDevices;
         }
+        console.log(`[DEBUG] Adding device: ${device.name || device.id}`);
+        return [...prevDevices, device];
+      });
+    }
+  });
 
-        if (isScanning) {
-            showCustomAlert("Already scanning!");
-            console.log("[DEBUG] startScan aborted: Already scanning.");
-            return;
-        }
+  // Stop scanning after 10 seconds
+  setTimeout(() => {
+    bleManager.stopDeviceScan();
+    setIsScanning(false);
+    setBluetoothStatus("Scan finished.");
+    console.log("[DEBUG] Scan timer ended, setIsScanning(false).");
+  }, 10000);
+};
 
-        setScannedDevices([]); // Clear previous scan results
-        setBluetoothStatus("Scanning for ESP32 devices...");
-        setIsScanning(true); // <--- This should trigger "Scanning..." text and indicator
-        console.log("[DEBUG] setIsScanning(true) called. isScanning state should now be true.");
-
-
-        // --- IMPORTANT CHANGE HERE: Scan only for devices advertising the specific Service UUID ---
-        // The first argument to startDeviceScan is an array of service UUIDs to filter by.
-        // This is the most efficient way to find your device.
-        bleManager.startDeviceScan([ESP32_SERVICE_UUID], null, (error, device) => {
-          if (error) {
-            console.error("Scan error:", error);
-            setBluetoothStatus(`Scan Error: ${error.message}`);
-            showCustomAlert(`Bluetooth Scan Error: ${error.message}`);
-            setIsScanning(false);
-            console.log("[DEBUG] Scan error detected, setIsScanning(false).");
-            return;
-          }
-
-          // --- DEBUGGING: Log every device found by the low-level scan ---
-          if (device) {
-            console.log(`[DEBUG] Found device: ID=${device.id}, Name=${device.name || 'N/A'}, Service UUIDs=${JSON.stringify(device.serviceUUIDs)}`);
-          }
-
-          // Add device to the list only if it's not already there
-          // We are now relying primarily on the `startDeviceScan` filter for the service UUID.
-          // The `device.name?.includes('ESP32')` check is removed here to be less restrictive
-          // and ensure the device is listed if the service UUID matches.
-          if (device && !scannedDevices.some(d => d.id === device.id)) {
-            // You might want to add a more specific filter here later if you have many devices
-            // that advertise the same service UUID, but for now, let's list them all.
-            console.log(`[DEBUG] Adding device to scannedDevices: ${device.name || device.id}`);
-            setScannedDevices(prevDevices => [...prevDevices, device]);
-          }
-        });
-
-        // Stop scanning after 10 seconds
-        setTimeout(() => {
-          bleManager.stopDeviceScan();
-          setIsScanning(false);
-          setBluetoothStatus("Scan finished.");
-          if (scannedDevices.length === 0) {
-            setBluetoothStatus("No devices found. Tap Scan to retry.");
-          }
-          console.log("[DEBUG] Scan timer ended, setIsScanning(false).");
-        }, 10000);
-      };
 
       const connectToDevice = async (device) => {
         if (isConnecting) return;
