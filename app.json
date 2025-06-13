@@ -44,9 +44,9 @@
       "eas": {
         "projectId": "756d4d21-73ee-45ea-9521-4d5bcfe639b5"
       },
-      "EXPO_PUBLIC_IOS_CLIENT_ID": "YOUR_IOS_CLIENT_ID_FROM_GOOGLE_CLOUD",
-      "EXPO_PUBLIC_ANDROID_CLIENT_ID": "YOUR_ANDROID_CLIENT_ID_FROM_GOOGLE_CLOUD",
-      "EXPO_PUBLIC_WEB_CLIENT_ID": "YOUR_WEB_CLIENT_ID_FROM_GOOGLE_CLOUD"
+      "EXPO_PUBLIC_IOS_CLIENT_ID": "668153907614-g77f19fvi1qg6pkogijjutk1goe36rf0.apps.googleusercontent.com",
+      "EXPO_PUBLIC_ANDROID_CLIENT_ID": "668153907614-u24rgrnoh398hcg442n770a1tjkmdpt8.apps.googleusercontent.com",
+      "EXPO_PUBLIC_WEB_CLIENT_ID": "668153907614-524jr53kv58ol22fqug7jflvsuesh4sl.apps.googleusercontent.com"
     }
   }
 }
