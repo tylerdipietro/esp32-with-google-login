@@ -8,10 +8,10 @@ import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { BleManager, State as BluetoothState } from 'react-native-ble-plx'; // Removed Device type, added State
 import { Buffer } from 'buffer'; // Required for base64 encoding/decoding
 
-// Polyfill for TextEncoder/Decoder for some environments
-// import 'react-native-url-polyfill/auto';
-
-WebBrowser.maybeCompleteAuthSession();
+// Conditionally complete auth session for non-web platforms
+if (Platform.OS !== 'web') {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 // Initialize Buffer for global use if needed (often automatically handled by bundlers)
 if (typeof Buffer === 'undefined') {
@@ -126,9 +126,9 @@ function DashboardScreen() {
   // BLE State Management
   const bleManager = useRef(new BleManager()).current; // Initialize BleManager once
   const [bluetoothStatus, setBluetoothStatus] = useState('Initializing Bluetooth...');
-  const [scannedDevices, setScannedDevices] = useState([]); // Removed TypeScript type
+  const [scannedDevices, setScannedDevices] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
-  const [connectedDevice, setConnectedDevice] = useState(null); // Removed TypeScript type
+  const [connectedDevice, setConnectedDevice] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isTriggering, setIsTriggering] = useState(false);
 
@@ -259,7 +259,7 @@ function DashboardScreen() {
     }, 10000);
   };
 
-  const connectToDevice = async (device) => { // Removed TypeScript type
+  const connectToDevice = async (device) => {
     if (isConnecting) return;
     setIsConnecting(true);
     bleManager.stopDeviceScan();
@@ -436,8 +436,144 @@ function DashboardScreen() {
   );
 }
 
-export default DashboardScreen;
+// --- Main App Component (Wrapper for SafeAreaProvider and AuthContext) ---
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [isAlertVisible, setIsAlertVisible] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
 
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
+    scopes: ['profile', 'email'],
+  });
+
+  const showCustomAlert = (message) => {
+    setAlertMessage(message);
+    setIsAlertVisible(true);
+  };
+
+  const hideCustomAlert = () => {
+    setIsAlertVisible(false);
+    setAlertMessage('');
+  };
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { authentication } = response;
+      if (authentication && authentication.accessToken) {
+        fetchUserInfo(authentication.accessToken, authentication.idToken);
+      }
+    } else if (response?.type === 'error') {
+      console.error('Google Auth Error:', response.error);
+      setIsLoadingAuth(false);
+      showCustomAlert(`Authentication Error: ${response.error.message || 'Unknown error'}`);
+    }
+  }, [response]);
+
+  useEffect(() => {
+    loadUserFromStorage();
+  }, []);
+
+  const fetchUserInfo = async (accessToken, idToken) => {
+    try {
+      const userInfoResponse = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!userInfoResponse.ok) {
+        throw new Error(`Failed to fetch user info: ${userInfoResponse.statusText}`);
+      }
+
+      const userInfo = await userInfoResponse.json();
+      const userPayload = {
+        accessToken: accessToken,
+        idToken: idToken,
+        email: userInfo.email,
+        givenName: userInfo.given_name,
+        photoUrl: userInfo.picture,
+      };
+      setUser(userPayload);
+      await AsyncStorage.setItem('user', JSON.stringify(userPayload));
+      console.log('User logged in:', userPayload.email);
+    } catch (error) {
+      console.error('Failed to fetch user info:', error);
+      showCustomAlert(`Error fetching user info: ${error.message}`);
+      setUser({ accessToken, idToken });
+    } finally {
+      setIsLoadingAuth(false);
+    }
+  };
+
+  const loadUserFromStorage = async () => {
+    try {
+      const storedUser = await AsyncStorage.getItem('user');
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+        console.log('User restored from storage:', parsedUser.email);
+      }
+    } catch (error) {
+      console.error('Failed to load user from storage:', error);
+      showCustomAlert(`Error loading session: ${error.message}`);
+    } finally {
+      setIsLoadingAuth(false);
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    setIsLoadingAuth(true);
+    try {
+      await promptAsync();
+    } catch (error) {
+      console.error('Google sign-in prompt error:', error);
+      setIsLoadingAuth(false);
+      showCustomAlert(`Sign-in prompt error: ${error.message}`);
+    }
+  };
+
+  const signOut = async () => {
+    setIsLoadingAuth(true);
+    try {
+      await AsyncStorage.removeItem('user');
+      setUser(null);
+      console.log('User signed out.');
+    } catch (error) {
+      console.error('Failed to sign out:', error);
+      showCustomAlert(`Error signing out: ${error.message}`);
+    } finally {
+      setIsLoadingAuth(false);
+    }
+  };
+
+  const authContextValue = {
+    user,
+    signInWithGoogle,
+    signOut,
+    isLoadingAuth,
+    showCustomAlert,
+  };
+
+  return (
+    <SafeAreaProvider>
+      <AuthContext.Provider value={authContextValue}>
+        {isLoadingAuth ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Loading...</Text>
+          </View>
+        ) : user ? (
+          <DashboardScreen />
+        ) : (
+          <LoginScreen />
+        )}
+        <CustomAlert message={alertMessage} isVisible={isAlertVisible} onClose={hideCustomAlert} />
+      </AuthContext.Provider>
+    </SafeAreaProvider>
+  );
+}
 
 // --- Stylesheet for the components ---
 const styles = StyleSheet.create({
@@ -505,6 +641,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+    width: '100%',
   },
   googleIcon: {
     marginRight: 10,
@@ -700,5 +837,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
   },
 });
