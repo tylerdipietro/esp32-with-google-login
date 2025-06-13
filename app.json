@@ -19,7 +19,6 @@
       "config": {
         "googleMapsApiKey": ""
       },
-      "googleServicesFile": "./GoogleService-Info.plist", // optional, safe to keep if using Firebase later
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to connect to nearby ESP32 devices.",
         "NSBluetoothPeripheralUsageDescription": "This app requires Bluetooth access to discover and connect to ESP32 devices.",
