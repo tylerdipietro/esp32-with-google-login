@@ -436,6 +436,9 @@ function DashboardScreen() {
   );
 }
 
+export default DashboardScreen;
+
+
 // --- Stylesheet for the components ---
 const styles = StyleSheet.create({
   container: {
