@@ -37,6 +37,8 @@
       );
     }
 
+     const bleManager = useRef(new BleManager()).current; // Initialize BleManager once
+
     const customAlertStyles = StyleSheet.create({
       overlay: {
         position: 'absolute',
@@ -124,7 +126,7 @@
       const { signOut, user, showCustomAlert } = useContext(AuthContext);
 
       // BLE State Management
-      const bleManager = useRef(new BleManager()).current; // Initialize BleManager once
+     
       const [bluetoothStatus, setBluetoothStatus] = useState('Initializing Bluetooth...');
       const [scannedDevices, setScannedDevices] = useState([]);
       const [isScanning, setIsScanning] = useState(false);
