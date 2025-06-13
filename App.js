@@ -133,8 +133,9 @@ function DashboardScreen() {
   const [isTriggering, setIsTriggering] = useState(false);
 
   // Replace with your ESP32's actual Service and Characteristic UUIDs
-  const ESP32_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb'; // Example: A common simple BLE service UUID
-  const ESP32_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb'; // Example: A common characteristic UUID
+  // These UUIDs MUST EXACTLY match those in your ESP32 firmware.
+  const ESP32_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+  const ESP32_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
   // --- Bluetooth State & Permissions ---
   useEffect(() => {
@@ -228,7 +229,8 @@ function DashboardScreen() {
     setBluetoothStatus("Scanning for ESP32 devices...");
     setIsScanning(true);
 
-    bleManager.startDeviceScan(null, null, (error, device) => { // Scan all devices
+    // --- IMPORTANT CHANGE HERE: Scan only for devices advertising the specific Service UUID ---
+    bleManager.startDeviceScan([ESP32_SERVICE_UUID], null, (error, device) => {
       if (error) {
         console.error("Scan error:", error);
         setBluetoothStatus(`Scan Error: ${error.message}`);
@@ -237,14 +239,10 @@ function DashboardScreen() {
         return;
       }
 
-      // Filter devices, e.g., by name or advertised service UUID
-      if (device && (device.name?.includes('ESP32') || device.serviceUUIDs?.includes(ESP32_SERVICE_UUID))) {
-        setScannedDevices(prevDevices => {
-          if (!prevDevices.some(d => d.id === device.id)) {
-            return [...prevDevices, device];
-          }
-          return prevDevices;
-        });
+      // Add device to the list only if it's not already there and has the correct service UUID (already filtered by startDeviceScan)
+      // We also check for the device name here for user-friendliness, but the primary filter is the service UUID.
+      if (device && device.name?.includes('ESP32') && !scannedDevices.some(d => d.id === device.id)) {
+        setScannedDevices(prevDevices => [...prevDevices, device]);
       }
     });
 
