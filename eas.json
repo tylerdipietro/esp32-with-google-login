@@ -5,19 +5,25 @@
   },
   "build": {
     "development": {
-      "developmentClient": false, // Builds a development client with Expo Go features
-      "distribution": "internal", // For Ad Hoc or TestFlight distribution
+      "developmentClient": true,
+      "distribution": "internal",
       "ios": {
-        "buildConfiguration": "Debug", // Use Debug for development builds
-        "resourceClass": "m-medium" // Recommended for faster builds
-        // Removed "production": false as it's not allowed here
+        "buildConfiguration": "Debug",
+        "resourceClass": "m-medium"
       }
     },
     "preview": {
       "developmentClient": false,
       "distribution": "internal"
     },
-    "production": {}
+    "production": {
+      "developmentClient": false,
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Release",
+        "resourceClass": "m-medium"
+      }
+    }
   },
   "submit": {
     "production": {}
