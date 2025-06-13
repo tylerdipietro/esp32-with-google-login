@@ -1,4 +1,7 @@
-import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
+    import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
+    import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform } from 'react-native';
+    import * as WebBrowser from 'expo-web-browser';
+    import * => { useState, useEffect, createContext, useContext, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
@@ -203,6 +206,12 @@ function DashboardScreen() {
       setBluetoothStatus(`Bluetooth: ${state}`);
       if (state === BluetoothState.PoweredOn) {
         setBluetoothStatus('Bluetooth ON. Ready to scan.');
+        // Trigger scan immediately after Bluetooth is powered on
+        // This is important for robust startup behavior
+        if (!isScanning) { // Prevent re-triggering if already scanning
+            console.log("[DEBUG] Bluetooth powered on, automatically starting scan.");
+            startScan();
+        }
       } else if (state === BluetoothState.PoweredOff) {
         setConnectedDevice(null);
         setScannedDevices([]);
@@ -217,7 +226,31 @@ function DashboardScreen() {
       bleManager.destroy();
       console.log("[DEBUG] BleManager destroyed on unmount.");
     };
-  }, [bleManager, showCustomAlert]);
+  }, [bleManager, showCustomAlert, isScanning]); // Added isScanning to dependencies
+
+
+  // --- New useEffect to start scan automatically on component mount ---
+  useEffect(() => {
+    console.log("[DEBUG] DashboardScreen mounted. Attempting to start initial scan.");
+    // Only start scan if Bluetooth is powered on already or we are waiting for it
+    // The onStateChange listener will handle starting the scan once Bluetooth is ON
+    bleManager.state().then(state => {
+      if (state === BluetoothState.PoweredOn) {
+        startScan();
+      } else {
+        setBluetoothStatus(`Bluetooth: ${state}. Waiting to power on for scan.`);
+      }
+    });
+
+    // Cleanup: Stop any ongoing scan when the component unmounts
+    return () => {
+      if (isScanning) {
+        bleManager.stopDeviceScan();
+        setIsScanning(false);
+        console.log("[DEBUG] Scan stopped due to DashboardScreen unmount.");
+      }
+    };
+  }, [bleManager, isScanning]); // Added isScanning as dependency to ensure cleanup runs correctly
 
   // --- BLE Operations ---
 
@@ -395,7 +428,11 @@ function DashboardScreen() {
           <>
             <TouchableOpacity
               style={[styles.scanButton, isScanning && styles.scanButtonDisabled]}
-              onPress={startScan}
+              // We keep the button, but now it can also be used to restart the scan
+              onPress={() => {
+                console.log("[DEBUG] 'Scan for ESP32 Devices' button pressed (manual trigger).");
+                startScan();
+              }}
               disabled={isScanning}
             >
               {isScanning ? (
@@ -866,3 +903,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+    
