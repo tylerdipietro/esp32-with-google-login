@@ -253,7 +253,7 @@
 
       // --- BLE Operations ---
 
-   const startScan = async () => {
+  const startScan = async () => {
   console.log("[DEBUG] startScan initiated.");
   const hasPermissions = await requestPermissions();
   if (!hasPermissions) {
@@ -263,51 +263,24 @@
 
   if (isScanning) {
     showCustomAlert("Already scanning!");
-    console.log("[DEBUG] startScan aborted: Already scanning.");
     return;
   }
 
-  // Check Bluetooth state (optional but recommended)
-  const btState = await bleManager.state();
-  if (btState !== "PoweredOn") {
-    showCustomAlert("Please enable Bluetooth.");
-    setBluetoothStatus("Bluetooth is off.");
-    return;
-  }
+  setIsScanning(true); // 🟢 Immediately show scanning status in UI
+  setBluetoothStatus("Preparing to scan...");
 
-  setScannedDevices([]); // Clear previous scan results
-  setBluetoothStatus("Scanning for ESP32 devices...");
-  setIsScanning(true);
-
-  bleManager.startDeviceScan([ESP32_SERVICE_UUID], null, (error, device) => {
-    if (error) {
-      console.error("Scan error:", error);
-      setBluetoothStatus(`Scan Error: ${error.message}`);
-      showCustomAlert(`Bluetooth Scan Error: ${error.message}`);
-      setIsScanning(false);
-      return;
+  // Wait for Bluetooth to be ready
+  bleManager.onStateChange((state) => {
+    if (state === 'PoweredOn') {
+      actuallyStartScan();
+    } else {
+      showCustomAlert("Please enable Bluetooth.");
+      setBluetoothStatus("Bluetooth is off.");
+      setIsScanning(false); // 🔴 Cancel scanning state if BT not available
     }
-
-    if (device) {
-      console.log(`[DEBUG] Found device: ID=${device.id}, Name=${device.name || 'N/A'}`);
-      setScannedDevices(prevDevices => {
-        if (prevDevices.some(d => d.id === device.id)) {
-          return prevDevices;
-        }
-        console.log(`[DEBUG] Adding device: ${device.name || device.id}`);
-        return [...prevDevices, device];
-      });
-    }
-  });
-
-  // Stop scanning after 10 seconds
-  setTimeout(() => {
-    bleManager.stopDeviceScan();
-    setIsScanning(false);
-    setBluetoothStatus("Scan finished.");
-    console.log("[DEBUG] Scan timer ended, setIsScanning(false).");
-  }, 10000);
+  }, true);
 };
+
 
 
       const connectToDevice = async (device) => {
