@@ -1,5 +1,5 @@
     import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
-    import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform } from 'react-native';
+    import { View, Text, StyleSheet, ActivityIndicator, Image, TouchableOpacity, PermissionsAndroid, Alert as ReactNativeAlert, Platform, ScrollView } from 'react-native';
     import * as WebBrowser from 'expo-web-browser';
     import * as Google from 'expo-auth-session/providers/google';
     import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -7,8 +7,7 @@
     import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
     import { BleManager, State as BluetoothState } from 'react-native-ble-plx';
     import { Buffer } from 'buffer';
-    import { getBleManager, destroyBleManager } from './bleManager'; // adjust path
-    
+
     // Conditionally complete auth session for non-web platforms
     if (Platform.OS !== 'web') {
       WebBrowser.maybeCompleteAuthSession();
@@ -21,6 +20,9 @@
 
     // --- AuthContext: Provides authentication state and functions to all components ---
     const AuthContext = createContext(null);
+
+    // --- LogContext: Provides access to captured console logs ---
+    const LogContext = createContext(null);
 
     // --- Custom Alert Component (replaces native Alert for better UX and consistency) ---
     function CustomAlert({ message, isVisible, onClose }) {
@@ -37,7 +39,6 @@
         </View>
       );
     }
-
 
     const customAlertStyles = StyleSheet.create({
       overlay: {
@@ -124,9 +125,10 @@
     // --- Dashboard Screen Component ---
     function DashboardScreen() {
       const { signOut, user, showCustomAlert } = useContext(AuthContext);
+      const { logs, clearLogs } = useContext(LogContext); // Access logs from context
 
       // BLE State Management
-      const bleManager = useRef(getBleManager()).current;
+      const bleManager = useRef(new BleManager()).current; // Initialize BleManager once
       const [bluetoothStatus, setBluetoothStatus] = useState('Initializing Bluetooth...');
       const [scannedDevices, setScannedDevices] = useState([]);
       const [isScanning, setIsScanning] = useState(false);
@@ -253,35 +255,67 @@
 
       // --- BLE Operations ---
 
-  const startScan = async () => {
-  console.log("[DEBUG] startScan initiated.");
-  const hasPermissions = await requestPermissions();
-  if (!hasPermissions) {
-    console.log("[DEBUG] startScan aborted: Permissions not granted.");
-    return;
-  }
+      const startScan = async () => {
+        console.log("[DEBUG] startScan initiated.");
+        const hasPermissions = await requestPermissions();
+        if (!hasPermissions) {
+            console.log("[DEBUG] startScan aborted: Permissions not granted.");
+            return;
+        }
 
-  if (isScanning) {
-    showCustomAlert("Already scanning!");
-    return;
-  }
+        if (isScanning) {
+            showCustomAlert("Already scanning!");
+            console.log("[DEBUG] startScan aborted: Already scanning.");
+            return;
+        }
 
-  setIsScanning(true); // 🟢 Immediately show scanning status in UI
-  setBluetoothStatus("Preparing to scan...");
-
-  // Wait for Bluetooth to be ready
-  bleManager.onStateChange((state) => {
-    if (state === 'PoweredOn') {
-      actuallyStartScan();
-    } else {
-      showCustomAlert("Please enable Bluetooth.");
-      setBluetoothStatus("Bluetooth is off.");
-      setIsScanning(false); // 🔴 Cancel scanning state if BT not available
-    }
-  }, true);
-};
+        setScannedDevices([]); // Clear previous scan results
+        setBluetoothStatus("Scanning for ESP32 devices...");
+        setIsScanning(true); // <--- This should trigger "Scanning..." text and indicator
+        console.log("[DEBUG] setIsScanning(true) called. isScanning state should now be true.");
 
 
+        // --- IMPORTANT CHANGE HERE: Scan only for devices advertising the specific Service UUID ---
+        // The first argument to startDeviceScan is an array of service UUIDs to filter by.
+        // This is the most efficient way to find your device.
+        bleManager.startDeviceScan([ESP32_SERVICE_UUID], null, (error, device) => {
+          if (error) {
+            console.error("Scan error:", error);
+            setBluetoothStatus(`Scan Error: ${error.message}`);
+            showCustomAlert(`Bluetooth Scan Error: ${error.message}`);
+            setIsScanning(false);
+            console.log("[DEBUG] Scan error detected, setIsScanning(false).");
+            return;
+          }
+
+          // --- DEBUGGING: Log every device found by the low-level scan ---
+          if (device) {
+            console.log(`[DEBUG] Found device: ID=${device.id}, Name=${device.name || 'N/A'}, Service UUIDs=${JSON.stringify(device.serviceUUIDs)}`);
+          }
+
+          // Add device to the list only if it's not already there
+          // We are now relying primarily on the `startDeviceScan` filter for the service UUID.
+          // The `device.name?.includes('ESP32')` check is removed here to be less restrictive
+          // and ensure the device is listed if the service UUID matches.
+          if (device && !scannedDevices.some(d => d.id === device.id)) {
+            // You might want to add a more specific filter here later if you have many devices
+            // that advertise the same service UUID, but for now, let's list them all.
+            console.log(`[DEBUG] Adding device to scannedDevices: ${device.name || device.id}`);
+            setScannedDevices(prevDevices => [...prevDevices, device]);
+          }
+        });
+
+        // Stop scanning after 10 seconds
+        setTimeout(() => {
+          bleManager.stopDeviceScan();
+          setIsScanning(false);
+          setBluetoothStatus("Scan finished.");
+          if (scannedDevices.length === 0) {
+            setBluetoothStatus("No devices found. Tap Scan to retry.");
+          }
+          console.log("[DEBUG] Scan timer ended, setIsScanning(false).");
+        }, 10000);
+      };
 
       const connectToDevice = async (device) => {
         if (isConnecting) return;
@@ -461,6 +495,27 @@
                 </TouchableOpacity>
               </View>
             )}
+
+            {/* In-App Log Viewer */}
+            <View style={styles.logViewerContainer}>
+              <View style={styles.logViewerHeader}>
+                <Text style={styles.logViewerTitle}>App Logs</Text>
+                <TouchableOpacity onPress={clearLogs} style={styles.clearLogsButton}>
+                  <Text style={styles.clearLogsButtonText}>Clear Logs</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.logScrollView} contentContainerStyle={styles.logScrollViewContent}>
+                {logs.map((log, index) => (
+                  <Text key={index} style={styles.logText}>
+                    {log}
+                  </Text>
+                ))}
+                {logs.length === 0 && (
+                  <Text style={styles.noLogsText}>No app logs yet.</Text>
+                )}
+              </ScrollView>
+            </View>
+
           </View>
         </SafeAreaView>
       );
@@ -472,6 +527,51 @@
       const [isLoadingAuth, setIsLoadingAuth] = useState(true);
       const [isAlertVisible, setIsAlertVisible] = useState(false);
       const [alertMessage, setAlertMessage] = useState('');
+      const [logs, setLogs] = useState([]); // State to store captured logs
+
+      // Store original console methods
+      const originalConsoleLog = useRef(console.log);
+      const originalConsoleWarn = useRef(console.warn);
+      const originalConsoleError = useRef(console.error);
+
+      // Effect to override console methods on mount and restore on unmount
+      useEffect(() => {
+        const captureLog = (method, ...args) => {
+          const timestamp = new Date().toLocaleTimeString();
+          const message = args.map(arg => {
+            if (typeof arg === 'object' && arg !== null) {
+              try {
+                return JSON.stringify(arg, null, 2);
+              } catch (e) {
+                return String(arg); // Fallback for circular references or complex objects
+              }
+            }
+            return String(arg);
+          }).join(' ');
+          setLogs(prevLogs => {
+            const newLogs = [...prevLogs, `[${timestamp}] [${method.toUpperCase()}] ${message}`];
+            // Keep only the last 100 logs to prevent memory issues
+            return newLogs.slice(-100);
+          });
+          originalConsoleLog.current.apply(console, args); // Still log to actual console (e.g., Xcode/terminal)
+        };
+
+        // Override native console methods
+        console.log = (...args) => captureLog('log', ...args);
+        console.warn = (...args) => captureLog('warn', ...args);
+        console.error = (...args) => captureLog('error', ...args);
+
+        // Restore original console methods on component unmount
+        return () => {
+          console.log = originalConsoleLog.current;
+          console.warn = originalConsoleWarn.current;
+          console.error = originalConsoleError.current;
+        };
+      }, []); // Run once on mount and cleanup on unmount
+
+      const clearLogs = () => {
+        setLogs([]);
+      };
 
       const [request, response, promptAsync] = Google.useAuthRequest({
         iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
@@ -586,20 +686,27 @@
         showCustomAlert,
       };
 
+      const logContextValue = {
+        logs,
+        clearLogs,
+      };
+
       return (
         <SafeAreaProvider>
           <AuthContext.Provider value={authContextValue}>
-            {isLoadingAuth ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#007AFF" />
-                <Text style={styles.loadingText}>Loading...</Text>
-              </View>
-            ) : user ? (
-              <DashboardScreen />
-            ) : (
-              <LoginScreen />
-            )}
-            <CustomAlert message={alertMessage} isVisible={isAlertVisible} onClose={hideCustomAlert} />
+            <LogContext.Provider value={logContextValue}>
+              {isLoadingAuth ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#007AFF" />
+                  <Text style={styles.loadingText}>Loading...</Text>
+                </View>
+              ) : user ? (
+                <DashboardScreen />
+              ) : (
+                <LoginScreen />
+              )}
+              <CustomAlert message={alertMessage} isVisible={isAlertVisible} onClose={hideCustomAlert} />
+            </LogContext.Provider>
           </AuthContext.Provider>
         </SafeAreaProvider>
       );
@@ -697,177 +804,233 @@
         borderBottomWidth: 1,
         borderBottomColor: '#e0e0e0',
       },
-  profilePic: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-  welcomeText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-  },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-    borderRadius: 10,
-    backgroundColor: '#f0f0f0',
-  },
-  signOutButtonText: {
-    marginLeft: 5,
-    color: 'gray',
-    fontSize: 14,
-  },
-  dashboardCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 25,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-    width: '90%',
-    maxWidth: 500,
-    marginTop: 20,
-    flexGrow: 1,
-  },
-  dashboardTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  bluetoothStatusText: {
-    fontSize: 16,
-    color: '#555',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  subHeading: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#444',
-    marginBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 5,
-  },
-  // New styles for scan button and device list
-  scanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF', // Blue for scan
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 30,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    width: '100%',
-  },
-  scanButtonDisabled: {
-    opacity: 0.6,
-  },
-  scanButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  deviceItem: {
-    backgroundColor: '#f8f8f8',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    flexDirection: 'row', // To align text and activity indicator
-    alignItems: 'center',
-  },
-  deviceItemDisabled: {
-    opacity: 0.6,
-  },
-  deviceName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    flexShrink: 1, // Allow text to shrink
-    marginRight: 10,
-  },
-  deviceId: {
-    fontSize: 12,
-    color: '#777',
-    marginTop: 5,
-    flexShrink: 1,
-  },
-  noDevicesText: {
-    fontSize: 14,
-    color: '#777',
-    textAlign: 'center',
-    paddingVertical: 20,
-  },
-  connectedInfo: {
-    marginTop: 30,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    alignItems: 'center',
-  },
-  connectedText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 15,
-  },
-  triggerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#28a745',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 30,
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    width: '100%',
-  },
-  triggerButtonDisabled: {
-    opacity: 0.6,
-  },
-  triggerButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  disconnectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#dc3545',
-    paddingVertical: 12,
-    paddingHorizontal: 25,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    width: '100%',
-  },
-  disconnectButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-});
+      profilePic: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        marginRight: 10,
+      },
+      welcomeText: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#333',
+        flex: 1,
+      },
+      signOutButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 8,
+        borderRadius: 10,
+        backgroundColor: '#f0f0f0',
+      },
+      signOutButtonText: {
+        marginLeft: 5,
+        color: 'gray',
+        fontSize: 14,
+      },
+      dashboardCard: {
+        backgroundColor: '#fff',
+        borderRadius: 20,
+        padding: 25,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 5,
+        width: '90%',
+        maxWidth: 500,
+        marginTop: 20,
+        flexGrow: 1,
+        marginBottom: 20, // Add some bottom margin to separate from other content
+      },
+      dashboardTitle: {
+        fontSize: 24,
+        fontWeight: '700',
+        color: '#333',
+        marginBottom: 20,
+        textAlign: 'center',
+      },
+      bluetoothStatusText: {
+        fontSize: 16,
+        color: '#555',
+        marginBottom: 20,
+        textAlign: 'center',
+      },
+      subHeading: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#444',
+        marginBottom: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+        paddingBottom: 5,
+      },
+      // New styles for scan button and device list
+      scanButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#007AFF', // Blue for scan
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: 30,
+        marginBottom: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        width: '100%',
+      },
+      scanButtonDisabled: {
+        opacity: 0.6,
+      },
+      scanButtonText: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '600',
+      },
+      deviceItem: {
+        backgroundColor: '#f8f8f8',
+        padding: 15,
+        borderRadius: 10,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: '#e0e0e0',
+        flexDirection: 'row', // To align text and activity indicator
+        alignItems: 'center',
+      },
+      deviceItemDisabled: {
+        opacity: 0.6,
+      },
+      deviceName: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#333',
+        flexShrink: 1, // Allow text to shrink
+        marginRight: 10,
+      },
+      deviceId: {
+        fontSize: 12,
+        color: '#777',
+        marginTop: 5,
+        flexShrink: 1,
+      },
+      noDevicesText: {
+        fontSize: 14,
+        color: '#777',
+        textAlign: 'center',
+        paddingVertical: 20,
+      },
+      connectedInfo: {
+        marginTop: 30,
+        paddingTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#e0e0e0',
+        alignItems: 'center',
+      },
+      connectedText: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#007AFF',
+        marginBottom: 15,
+      },
+      triggerButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#28a745',
+        paddingVertical: 15,
+        paddingHorizontal: 30,
+        borderRadius: 30,
+        marginBottom: 15,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        width: '100%',
+      },
+      triggerButtonDisabled: {
+        opacity: 0.6,
+      },
+      triggerButtonText: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+      },
+      disconnectButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#dc3545',
+        paddingVertical: 12,
+        paddingHorizontal: 25,
+        borderRadius: 30,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        width: '100%',
+      },
+      disconnectButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
+        textAlign: 'center',
+      },
+      // Styles for In-App Log Viewer
+      logViewerContainer: {
+        marginTop: 20,
+        borderTopWidth: 1,
+        borderTopColor: '#e0e0e0',
+        paddingTop: 15,
+        width: '100%',
+        flex: 1, // Allow it to take available space
+      },
+      logViewerHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+        paddingHorizontal: 5,
+      },
+      logViewerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: '#333',
+      },
+      clearLogsButton: {
+        backgroundColor: '#FF6347', // Tomato red
+        paddingVertical: 5,
+        paddingHorizontal: 10,
+        borderRadius: 15,
+      },
+      clearLogsButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: 'bold',
+      },
+      logScrollView: {
+        backgroundColor: '#e9eff4',
+        borderRadius: 10,
+        padding: 10,
+        maxHeight: 200, // Limit height to avoid taking too much screen space
+        borderWidth: 1,
+        borderColor: '#d0d0d0',
+      },
+      logScrollViewContent: {
+        paddingBottom: 5,
+      },
+      logText: {
+        fontSize: 12,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', // Monospaced font for logs
+        color: '#333',
+        marginBottom: 2,
+      },
+      noLogsText: {
+        fontSize: 14,
+        color: '#777',
+        textAlign: 'center',
+        paddingVertical: 10,
+      },
+    });
     
