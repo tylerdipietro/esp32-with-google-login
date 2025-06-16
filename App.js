@@ -405,7 +405,7 @@
 
 
       return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.safeArea}> {/* Use a dedicated style for SafeAreaView */}
           {/* Header Section */}
           <View style={styles.header}>
             {user && user.photoUrl && (
@@ -420,103 +420,102 @@
             </TouchableOpacity>
           </View>
 
-          {/* Dashboard Content Card */}
-          <View style={styles.dashboardCard}>
-            <Text style={styles.dashboardTitle}>Bluetooth Devices</Text>
-            <Text style={styles.bluetoothStatusText}>{bluetoothStatus}</Text>
+          {/* Dashboard Content ScrollView */}
+          <ScrollView contentContainerStyle={styles.dashboardScrollViewContent} style={styles.dashboardScrollView}>
+            <View style={styles.dashboardCard}>
+              <Text style={styles.dashboardTitle}>Bluetooth Devices</Text>
+              <Text style={styles.bluetoothStatusText}>{bluetoothStatus}</Text>
 
-            {!connectedDevice ? (
-              <>
-                <TouchableOpacity
-                  style={[styles.scanButton, isScanning && styles.scanButtonDisabled]}
-                  // We keep the button, but now it can also be used to restart the scan
-                  onPress={() => {
-                    console.log("[DEBUG] 'Scan for ESP32 Devices' button pressed (manual trigger).");
-                    startScan();
-                  }}
-                  disabled={isScanning}
-                >
-                  {isScanning ? (
-                    // Show ActivityIndicator when scanning is true
-                    <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
+              {!connectedDevice ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.scanButton, isScanning && styles.scanButtonDisabled]}
+                    onPress={() => {
+                      console.log("[DEBUG] 'Scan for ESP32 Devices' button pressed (manual trigger).");
+                      startScan();
+                    }}
+                    disabled={isScanning}
+                  >
+                    {isScanning ? (
+                      <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
+                    ) : (
+                      <AntDesign name="bluetooth" size={24} color="white" style={{ marginRight: 10 }} />
+                    )}
+                    <Text style={styles.scanButtonText}>
+                      {isScanning ? 'Scanning...' : 'Scan for ESP32 Devices'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.subHeading}>Found Devices:</Text>
+                  {scannedDevices.length > 0 ? (
+                    scannedDevices.map((device) => (
+                      <TouchableOpacity
+                        key={device.id}
+                        style={[styles.deviceItem, isConnecting && styles.deviceItemDisabled]}
+                        onPress={() => connectToDevice(device)}
+                        disabled={isConnecting}
+                      >
+                        <Text style={styles.deviceName}>{device.name || 'N/A'}</Text>
+                        <Text style={styles.deviceId}>{device.id}</Text>
+                        {isConnecting && device.id === connectedDevice?.id && (
+                          <ActivityIndicator size="small" color="#007AFF" style={{ marginLeft: 'auto' }} />
+                        )}
+                      </TouchableOpacity>
+                    ))
                   ) : (
-                    // Show Bluetooth icon when not scanning
-                    <AntDesign name="bluetooth" size={24} color="white" style={{ marginRight: 10 }} />
+                    <Text style={styles.noDevicesText}>
+                      {isScanning ? 'Searching...' : 'No devices found. Tap Scan to retry.'}
+                    </Text>
                   )}
-                  <Text style={styles.scanButtonText}>
-                    {isScanning ? 'Scanning...' : 'Scan for ESP32 Devices'}
-                  </Text>
-                </TouchableOpacity>
+                </>
+              ) : (
+                <View style={styles.connectedInfo}>
+                  <Text style={styles.connectedText}>Connected to: {connectedDevice.name || connectedDevice.id}</Text>
+                  <TouchableOpacity
+                    style={[styles.triggerButton, isTriggering && styles.triggerButtonDisabled]}
+                    onPress={handleTriggerGpio}
+                    disabled={isTriggering}
+                  >
+                    {isTriggering ? (
+                      <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
+                    ) : (
+                      <Feather name="zap" size={20} color="white" style={{ marginRight: 10 }} />
+                    )}
+                    <Text style={styles.triggerButtonText}>
+                      {isTriggering ? 'Triggering...' : 'TRIGGER GPIO 27'}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.disconnectButton}
+                    onPress={disconnectDevice}
+                  >
+                    <Text style={styles.disconnectButtonText}>Disconnect</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
-                <Text style={styles.subHeading}>Found Devices:</Text>
-                {scannedDevices.length > 0 ? (
-                  scannedDevices.map((device) => (
-                    <TouchableOpacity
-                      key={device.id}
-                      style={[styles.deviceItem, isConnecting && styles.deviceItemDisabled]}
-                      onPress={() => connectToDevice(device)}
-                      disabled={isConnecting}
-                    >
-                      <Text style={styles.deviceName}>{device.name || 'N/A'}</Text>
-                      <Text style={styles.deviceId}>{device.id}</Text>
-                      {isConnecting && device.id === connectedDevice?.id && (
-                        <ActivityIndicator size="small" color="#007AFF" style={{ marginLeft: 'auto' }} />
-                      )}
-                    </TouchableOpacity>
-                  ))
-                ) : (
-                  <Text style={styles.noDevicesText}>
-                    {isScanning ? 'Searching...' : 'No devices found. Tap Scan to retry.'}
-                  </Text>
-                )}
-              </>
-            ) : (
-              <View style={styles.connectedInfo}>
-                <Text style={styles.connectedText}>Connected to: {connectedDevice.name || connectedDevice.id}</Text>
-                <TouchableOpacity
-                  style={[styles.triggerButton, isTriggering && styles.triggerButtonDisabled]}
-                  onPress={handleTriggerGpio}
-                  disabled={isTriggering}
-                >
-                  {isTriggering ? (
-                    <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />
-                  ) : (
-                    <Feather name="zap" size={20} color="white" style={{ marginRight: 10 }} />
+              {/* In-App Log Viewer */}
+              <View style={styles.logViewerContainer}>
+                <View style={styles.logViewerHeader}>
+                  <Text style={styles.logViewerTitle}>App Logs</Text>
+                  <TouchableOpacity onPress={clearLogs} style={styles.clearLogsButton}>
+                    <Text style={styles.clearLogsButtonText}>Clear Logs</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.logScrollView} contentContainerStyle={styles.logScrollViewContent}>
+                  {logs.map((log, index) => (
+                    <Text key={index} style={styles.logText}>
+                      {log}
+                    </Text>
+                  ))}
+                  {logs.length === 0 && (
+                    <Text style={styles.noLogsText}>No app logs yet.</Text>
                   )}
-                  <Text style={styles.triggerButtonText}>
-                    {isTriggering ? 'Triggering...' : 'TRIGGER GPIO 27'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.disconnectButton}
-                  onPress={disconnectDevice}
-                >
-                  <Text style={styles.disconnectButtonText}>Disconnect</Text>
-                </TouchableOpacity>
+                </ScrollView>
               </View>
-            )}
 
-            {/* In-App Log Viewer */}
-            <View style={styles.logViewerContainer}>
-              <View style={styles.logViewerHeader}>
-                <Text style={styles.logViewerTitle}>App Logs</Text>
-                <TouchableOpacity onPress={clearLogs} style={styles.clearLogsButton}>
-                  <Text style={styles.clearLogsButtonText}>Clear Logs</Text>
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.logScrollView} contentContainerStyle={styles.logScrollViewContent}>
-                {logs.map((log, index) => (
-                  <Text key={index} style={styles.logText}>
-                    {log}
-                  </Text>
-                ))}
-                {logs.length === 0 && (
-                  <Text style={styles.noLogsText}>No app logs yet.</Text>
-                )}
-              </ScrollView>
             </View>
-
-          </View>
+          </ScrollView>
         </SafeAreaView>
       );
     }
@@ -828,6 +827,19 @@
         color: 'gray',
         fontSize: 14,
       },
+      // New style for SafeAreaView in Dashboard
+      safeArea: {
+        flex: 1,
+        backgroundColor: '#f0f4f8',
+      },
+      dashboardScrollView: {
+        flex: 1, // Makes the ScrollView take all available space
+        width: '100%', // Ensure it takes full width
+      },
+      dashboardScrollViewContent: {
+        alignItems: 'center', // Center content horizontally within the scroll view
+        padding: 20, // Add padding similar to the old container
+      },
       dashboardCard: {
         backgroundColor: '#fff',
         borderRadius: 20,
@@ -837,10 +849,9 @@
         shadowOpacity: 0.1,
         shadowRadius: 8,
         elevation: 5,
-        width: '90%',
-        maxWidth: 500,
-        marginTop: 20,
-        flexGrow: 1,
+        width: '100%', // Take full width within the scroll view content
+        maxWidth: 500, // Keep max width for larger screens
+        marginTop: 0, // No need for top margin here, padding takes care of it
         marginBottom: 20, // Add some bottom margin to separate from other content
       },
       dashboardTitle: {
@@ -984,7 +995,7 @@
         borderTopColor: '#e0e0e0',
         paddingTop: 15,
         width: '100%',
-        flex: 1, // Allow it to take available space
+        flex: 1, // Allow it to take available available space within its parent
       },
       logViewerHeader: {
         flexDirection: 'row',
